@@ -28,20 +28,3 @@ EXPOSE 5000
 
 # Command to run the application
 CMD ["python", "app.py"]
-
-# docker-compose.yml
-version: '3'
-services:
-  web:
-    build: .
-    ports:
-      - "5000:5000"
-    volumes:
-      - .:/app
-      - ./images:/app/images
-      - ./static/uploads:/app/static/uploads
-    environment:
-      - FLASK_APP=app.py
-      - FLASK_ENV=development
-      - FLASK_DEBUG=1
-    user: root  # Ensure proper permissions for file uploads
