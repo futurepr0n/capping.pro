@@ -1,4 +1,3 @@
-# Dockerfile
 FROM python:3.9
 
 # Install system dependencies
@@ -15,15 +14,17 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
+
+# Install dependencies with specific versions
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p images static/uploads
+RUN mkdir -p images templates
 
-# Expose port 5000 for Flask
+# Expose port 3636 for Flask
 EXPOSE 3636
 
 # Command to run the application
