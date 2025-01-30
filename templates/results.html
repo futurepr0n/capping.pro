@@ -28,7 +28,7 @@
     <h1>Scan Results</h1>
     <div class="result-container">
         <h2>Uploaded Image: {{ filename }}</h2>
-        <img src="{{ url_for('static', filename='uploads/' + filename) }}" class="image-preview">
+        <img src="{{ url_for('uploaded_file', filename=filename) }}" class="image-preview">
         
         <h3>Scan Results:</h3>
         <p>Bet Type: {{ result['bet_type'].title() }}</p>
@@ -44,7 +44,7 @@
     </div>
     
     <div class="back-button">
-        <a href="{{ url_for('upload_file') }}">← Back to Upload</a>
+        <a href="{{ url_for('index') }}">← Back to Upload</a>
     </div>
 </body>
 </html>

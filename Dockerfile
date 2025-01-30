@@ -24,7 +24,7 @@ COPY . .
 RUN mkdir -p images static/uploads
 
 # Expose port 5000 for Flask
-EXPOSE 5000
+EXPOSE 3636
 
 # Command to run the application
 CMD ["python", "app.py"]
