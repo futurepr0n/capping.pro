@@ -1,0 +1,50 @@
+# templates/result.html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Scan Results</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .result-container {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ccc;
+        }
+        .image-preview {
+            max-width: 100%;
+            margin: 20px 0;
+        }
+        .back-button {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Scan Results</h1>
+    <div class="result-container">
+        <h2>Uploaded Image: {{ filename }}</h2>
+        <img src="{{ url_for('static', filename='uploads/' + filename) }}" class="image-preview">
+        
+        <h3>Scan Results:</h3>
+        <p>Bet Type: {{ result['bet_type'].title() }}</p>
+        <p>Expected Legs: {{ result['expected_legs'] }}</p>
+        <p>Found Legs: {{ result['found_legs'] }}</p>
+        
+        <h3>Detected Legs:</h3>
+        <ul>
+        {% for leg in result['legs'] %}
+            <li>{{ leg }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+    
+    <div class="back-button">
+        <a href="{{ url_for('upload_file') }}">← Back to Upload</a>
+    </div>
+</body>
+</html>
