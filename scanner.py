@@ -145,80 +145,108 @@ class BetSlipScanner:
         }
 
     def extract_legs(self, text: str) -> Dict:
-        bet_type = 'straight'
-        legs = []
-        games = []
-        formatted_output = []
-        current_game = None
-        current_legs = []
-        
-        # Get wager and payout first
         wager, payout = self.extract_wager_and_payout(text)
+        lines = text.split('\n')
         
         # Determine bet type
-        if 'MONEYLINE' in text.upper():
-            bet_type = 'moneyline'
-            moneyline_details = self.extract_moneyline_details(text)
-            if moneyline_details['matchup']:
-                legs = [f"MONEYLINE: {moneyline_details['matchup']} ({moneyline_details['odds']})"]
-                games = [{
-                    'game': moneyline_details['matchup'],
-                    'legs': legs
-                }]
-        elif 'PARLAY' in text.upper():
-            bet_type = 'parlay'
-            lines = text.split('\n')
-            
+        is_parlay = 'PARLAY' in text.upper()
+        bet_type = 'parlay' if is_parlay else 'straight'
+        
+        # For straight bets
+        if not is_parlay:
+            position = None
+            # Look for Super Boost
             for i, line in enumerate(lines):
-                upper_line = line.upper()
-                
-                # Detect new Same Game Parlay section
-                if 'SAME GAME PARLAY' in upper_line:
-                    if current_game and current_legs:
-                        games.append({
-                            'game': current_game,
-                            'legs': current_legs.copy()
-                        })
-                        current_legs = []
-                        current_game = None
-                
-                # Detect game header
-                elif '@' in line and not any(x in upper_line for x in ['ALT', 'MADE', 'SCORE']):
-                    current_game = line.strip()
-                
-                # Detect legs
-                elif ' - ALT ' in upper_line:
-                    clean_line = self.clean_text(line)
-                    if clean_line and not any(clean_line in leg for leg in current_legs):
-                        current_legs.append(clean_line)
-                        legs.append(clean_line)
+                if 'SUPER BOOST' in line.upper():
+                    position_lines = []
+                    j = i
+                    while j < len(lines) and not any(x in lines[j].upper() for x in ['TOTAL WAGER', 'TOTAL PAYOUT']):
+                        clean_line = lines[j].strip()
+                        if clean_line and not any(x in clean_line.upper() for x in ['+', 'ET', 'PM']):
+                            position_lines.append(clean_line)
+                        j += 1
+                    position = ' '.join(position_lines)
+                    break
             
-            # Add final game section
-            if current_game and current_legs:
-                games.append({
-                    'game': current_game,
-                    'legs': current_legs.copy()
-                })
+            # For other straight bets
+            if not position:
+                for line in lines:
+                    if ' - ALT ' in line.upper():
+                        position = line.strip()
+                        break
+            
+            positions = [position] if position else []
+            return {
+                'bet_type': bet_type,
+                'expected_legs': 1,
+                'found_legs': 1 if position else 0,
+                'positions': positions,
+                'total_wager': wager,
+                'total_payout': payout,
+                'formatted_output': [f"Position: {position}"] if position else [],
+                'games': [{'game': 'Straight Bet', 'positions': positions}] if position else []
+            }
+        
+        # For parlays
+        legs = []
+        games = []
+        current_game = None
+        current_legs = []
+        current_positions = []
+        
+        for i, line in enumerate(lines):
+            clean_line = line.strip()
+            upper_line = clean_line.upper()
+            
+            # Handle new SGP section
+            if 'SAME GAME PARLAY' in upper_line and '@' in ''.join(lines[i:i+3]):
+                if current_game and current_positions:
+                    games.append({
+                        'game': current_game,
+                        'positions': current_positions.copy()
+                    })
+                    current_positions = []
+                
+                # Look ahead for game header
+                for j in range(i+1, min(i+3, len(lines))):
+                    if '@' in lines[j] and not any(x in lines[j].upper() for x in ['ALT', 'SCORE', 'RECORD']):
+                        current_game = lines[j].strip()
+                        break
+            
+            # Process positions (former ALT lines)
+            elif ' - ALT ' in upper_line:
+                position = self.clean_text(line)
+                if position and not any(position in pos for pos in current_positions):
+                    current_positions.append(position)
+                    legs.append(position)
+        
+        # Add final game section
+        if current_game and current_positions:
+            games.append({
+                'game': current_game,
+                'positions': current_positions.copy()
+            })
         
         # Count expected legs
         parlay_match = re.search(r'(\d+)\s*leg.*Parlay', text, re.IGNORECASE)
-        expected_legs = int(parlay_match.group(1)) if parlay_match else (1 if bet_type == 'moneyline' else len(legs))
+        expected_legs = int(parlay_match.group(1)) if parlay_match else len(legs)
         
         # Create formatted output
-        for game in games:
-            formatted_output.append(f"\nGame: {game['game']}")
-            for i, leg in enumerate(game['legs'], 1):
-                formatted_output.append(f"Leg {i} - {leg}")
+        formatted_output = []
+        for game_idx, game in enumerate(games, 1):
+            formatted_output.append(f"\nGame {game_idx}: {game['game']}")
+            for pos_idx, position in enumerate(game['positions'], 1):
+                formatted_output.append(f"Leg {pos_idx} Position: {position}")
         
         return {
             'bet_type': bet_type,
             'expected_legs': expected_legs,
             'found_legs': len(legs),
+            'positions': legs,
             'games': games,
             'total_wager': wager,
             'total_payout': payout,
-            'formatted_output': formatted_output,
-            'legs': legs
+            'formatted_output': formatted_output
         }
 
 
