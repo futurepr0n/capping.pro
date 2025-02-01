@@ -3,14 +3,21 @@
 <head>
     <title>Scan Results</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
         .result-container { margin: 20px 0; padding: 20px; border: 1px solid #ccc; }
         .image-preview { max-width: 100%; margin: 20px 0; }
         .game-section { margin: 20px 0; padding: 15px; background-color: #f5f5f5; border-radius: 5px; }
-        .game-header { font-weight: bold; color: #333; margin-bottom: 10px; }
-        .legs-list { list-style-type: none; padding-left: 20px; }
         .leg-item { margin: 5px 0; }
-        .position { color: #444; margin-left: 20px; }
+        .bet-details { margin: 15px 0; }
+        .wager-payout { margin: 10px 0; color: #333; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f5f5f5; }
+        .bet-table { margin-bottom: 30px; }
+        .details-table { margin-bottom: 30px; }
+        .currency { text-align: right; }
+        .tables-section { margin-bottom: 40px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
+        .original-view { margin-top: 40px; border-top: 2px solid #eee; padding-top: 20px; }
     </style>
 </head>
 <body>
@@ -19,33 +26,93 @@
         <h2>Uploaded Image: {{ filename }}</h2>
         <img src="{{ url_for('uploaded_file', filename=filename) }}" class="image-preview">
         
-        <h3>Scan Results:</h3>
-        <p>Bet Type: {{ result['bet_type'].title() }}</p>
-        <p>Expected Legs: {{ result['expected_legs'] }}</p>
-        <p>Found Legs: {{ result['found_legs'] }}</p>
         
-        <h3>Detected Legs by Game:</h3>
-        {% if result['bet_type'] == 'straight' %}
-            <div class="game-section">
-                <div class="game-header">Straight Bet</div>
-                <ul class="legs-list">
-                    {% for position in result['positions'] %}
-                        <li class="leg-item">Position: {{ position }}</li>
-                    {% endfor %}
-                </ul>
+        
+        <!-- Original Detailed View Section -->
+        <div class="original-view">
+            <h3>Detailed Bet Information</h3>
+            <div class="bet-details">
+                <p>Bet Type: {{ result['bet_type'].title() }}</p>
+                <p>Expected Legs: {{ result['expected_legs'] }}</p>
+                <p>Found Legs: {{ result['found_legs'] }}</p>
+                <p class="wager-payout">
+                    Total Wager: ${{ "%.2f"|format(result['total_wager']) }}<br>
+                    Total Payout: ${{ "%.2f"|format(result['total_payout']) }}
+                </p>
             </div>
-        {% else %}
-            {% for game in result['games'] %}
-                <div class="game-section">
-                    <div class="game-header">{{ game['game'] }}</div>
-                    <ul class="legs-list">
-                        {% for position in game['positions'] %}
-                            <li class="leg-item">Leg {{ loop.index }} Position: {{ position }}</li>
-                        {% endfor %}
-                    </ul>
-                </div>
-            {% endfor %}
-        {% endif %}
+            
+            <h3>Detected Legs by Game:</h3>
+            {% if result['games'] %}
+                {% for game in result['games'] %}
+                    <div class="game-section">
+                        <h4>{{ game['game'] }}</h4>
+                        <ul>
+                            {% for position in game['positions'] %}
+                                <li class="leg-item">
+                                    Leg {{ loop.index }} Position: {{ position['position'] }}
+                                    <div class="details">Bet Details: {{ position['details'] }}</div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Table View Section -->
+    <div class="tables-section">
+        <h3>Bets Summary</h3>
+        <table class="bet-table">
+            <thead>
+                <tr>
+                    <th>Bet ID</th>
+                    <th>Bet Date</th>
+                    <th>Sportsbook</th>
+                    <th>Wager</th>
+                    <th>Payout</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td>{{ datetime.now().strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>FanDuel</td>
+                    <td class="currency">${{ "%.2f"|format(result['total_wager']) }}</td>
+                    <td class="currency">${{ "%.2f"|format(result['total_payout']) }}</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>Bet Details</h3>
+        <table class="details-table">
+            <thead>
+                <tr>
+                    <th>Bet ID</th>
+                    <th>Bet Date</th>
+                    <th>Bet Type</th>
+                    <th>Position</th>
+                    <th>Bet Details</th>
+                    <th>Wager</th>
+                    <th>Payout</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for game in result['games'] %}
+                    {% for position in game['positions'] %}
+                        <tr>
+                            <td>1</td>
+                            <td>{{ datetime.now().strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                            <td>{{ result['bet_type'].title() }}</td>
+                            <td>{{ position['position'] }}</td>
+                            <td>{{ position['details'] }}</td>
+                            <td class="currency">${{ "%.2f"|format(result['total_wager']) }}</td>
+                            <td class="currency">${{ "%.2f"|format(result['total_payout']) }}</td>
+                        </tr>
+                    {% endfor %}
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
     
     <div class="back-button">
