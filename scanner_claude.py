@@ -59,7 +59,7 @@ class BetSlipScanner:
 
         print(f"\nDEBUG - Final values: Wager=${wager}, Payout=${payout}")
         return wager, payout
-
+    
     def extract_made_threes_leg(self, text: str) -> List[str]:
         legs = []
         lines = text.split('\n')
@@ -137,164 +137,57 @@ class BetSlipScanner:
             'odds': odds
         }
 
-    def parse_player_prop(self, lines: List[str], start_idx: int) -> str:
-        current_line = lines[start_idx].strip()
-        next_line = lines[start_idx + 1].strip() if start_idx + 1 < len(lines) else ""
-        
-        # Clean up player name
-        name = re.sub(r'^[&@iG\s£6*\d®¢g»©]+', '', current_line)
-        name = re.sub(r'[\\/"$].*$', '', name)
-        
-        if not next_line:
-            return None
-            
-        # Standard formats
-        prop_types = {
-            'MADE THREES': lambda x: f"{x.strip()} {re.search(r'(\d+)\+?', next_line).group(1)}+ MADE THREES" if re.search(r'(\d+)\+?', next_line) else None,
-            'ALT ': lambda x: f"{x.strip()} - {next_line.strip()}",
-            'TO SCORE': lambda x: f"{x.strip()} {next_line.strip()}",
-            'TO RECORD': lambda x: f"{x.strip()} {next_line.strip()}"
-        }
-        
-        for key, formatter in prop_types.items():
-            if key in next_line.upper():
-                return formatter(name)
-        
-        return None
-
     def parse_structured_parlay_legs(self, text: str) -> List[Dict]:
-        """Parse legs from structured parlay section with various bet types."""
+        """Parse legs from structured parlay section (with circles)."""
         legs = []
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-        current_game = None
+        lines = text.split('\n')
         
-        def is_game_header(line: str) -> bool:
-            return '@' in line and any(x in line for x in ['ET', 'PM'])
-
-        def is_header_line(line: str) -> bool:
-            headers = [
-                'TOTAL', 'SAME GAME PARLAY', 'INCLUDES:', 
-                'LEG SAME', 'SELECTIONS', 'LEG PARLAY'
-            ]
-            return (
-                any(header in line.upper() for header in headers) or
-                (line.startswith('+') and line[1:].isdigit()) or  # Skip odds lines
-                (line.startswith('-') and line[1:].isdigit())
-            )
-
-        def clean_player_name(line: str) -> str:
-            # First, remove common OCR artifacts
-            name = re.sub(r'^[#\-~@iG\s£6*\d®¢g»©AO)ae"]+', '', line)
-            # Remove artifacts from the end
-            name = re.sub(r'[\\/"$].*$', '', name)
-            # Remove trailing odds numbers
-            name = re.sub(r'-\d+$', '', name)
-            # Remove any remaining artifacts
-            name = re.sub(r'[®¢g»©"\[\]{}]', '', name)
-            return name.strip()
-
-        def clean_bet_details(line: str) -> str:
-            # Remove leading OCR artifacts
-            details = re.sub(r'^[ae"\s]+', '', line)
-            # Remove any remaining artifacts
-            details = re.sub(r'[®¢g»©"\[\]{}]', '', details)
+        # Find where structured section begins (after game info)
+        start_idx = 0
+        for i, line in enumerate(lines):
+            if '@' in line and ('ET' in line or 'PM' in line):
+                start_idx = i + 1
+                break
+        
+        # Process lines in pairs (position + details)
+        i = start_idx
+        while i < len(lines) - 1:  # Need at least 2 lines remaining
+            position_line = lines[i].strip()
+            details_line = lines[i + 1].strip()
             
-            # Standardize bet detail format
-            if 'TO SCORE' in details.upper():
-                points_match = re.search(r'(\d+)\+?\s*POINTS', details.upper())
-                if points_match:
-                    points = points_match.group(1)
-                    return f"TO SCORE {points}+ POINTS"
-                    
-            return details.strip()
-
-        def is_bet_detail(line: str) -> bool:
-            patterns = [
-                r'TO SCORE \d+\+ POINTS',
-                r'TO RECORD \d+\+ (?:REBOUNDS|ASSISTS)',
-                r'\d+\+\s*MADE THREES',
-                r'ANY ?TIME TOUCHDOWN SCORER',
-                r'ALT (?:PASSING|RUSHING) (?:YDS|TDS)',
-            ]
-            # Clean the line first before checking patterns
-            clean_line = clean_bet_details(line)
-            return any(re.search(pattern, clean_line.upper()) for pattern in patterns)
-
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            
-            # Update current game if we hit a game header
-            if is_game_header(line):
-                current_game = line
+            # Skip header/summary section and empty lines
+            if not position_line or 'TOTAL' in position_line.upper() or position_line.startswith('"@'):
                 i += 1
                 continue
-                
-            # Skip header lines
-            if is_header_line(line):
-                i += 1
-                continue
-
-            # Look ahead for bet details
-            next_line = lines[i + 1] if i + 1 < len(lines) else ""
             
-            # Check for player name followed by bet details pattern
-            if next_line and is_bet_detail(next_line):
-                player_name = clean_player_name(line)
-                
-                # Validate player name
-                if (player_name and 
-                    not player_name.isupper() and  # Skip all-caps headers
-                    not '@' in player_name):       # Skip game headers
-                    
-                    # Handle hyphenated names (like Gilgeous-Alexander)
-                    if '-' in line and '-' not in player_name:
-                        parts = line.split('-')
-                        if len(parts) >= 2 and not parts[-1].isdigit():
-                            player_name = '-'.join(p.strip() for p in parts if not p.isdigit())
-                    
-                    legs.append({
-                        'position': player_name,
-                        'details': clean_bet_details(next_line),
-                        'game': current_game
-                    })
-                i += 2
+            # Check if the next line looks like bet details
+            if any(keyword in details_line.upper() for keyword in ['ALT', 'ANY TIME', 'ANYTIME']):
+                legs.append({
+                    'position': position_line,
+                    'details': details_line
+                })
+                i += 2  # Move to next pair
             else:
-                i += 1
-                    
+                i += 1  # Move to next line if not a valid pair
+                
         return legs
 
     def extract_legs(self, text: str) -> Dict:
         wager, payout = self.extract_wager_and_payout(text)
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        lines = text.split('\n')
+        is_parlay = 'PARLAY' in text.upper()
+        bet_type = 'Same Game Parlay' if is_parlay else 'straight'
         
-        # Determine bet type
-        if 'SAME GAME PARLAY+' in text.upper():
-            bet_type = 'Same Game Parlay+'
-        elif 'SAME GAME PARLAY' in text.upper():
-            bet_type = 'Same Game Parlay'
-        elif 'PARLAY' in text.upper():
-            bet_type = 'parlay'
-        else:
-            bet_type = 'straight'
-        
-        # Handle straight/moneyline bets
-        if bet_type == 'straight':
-            first_line = next((line.strip() for line in lines if line.strip()), '')
-            
+        # Handle straight bets
+        if not is_parlay:
             for i, line in enumerate(lines):
                 if 'MONEYLINE' in line.upper():
-                    player = first_line
-                    matchup_details = next(
-                        (l.strip() for l in lines[i:] if 'v' in l and any(x in l for x in ['ET', 'PM'])),
-                        ''
-                    )
-                    
+                    player = lines[i-1].strip() if i > 0 else ""
+                    details = next((l.strip() for l in lines[i+1:] if '@' in l and any(x in l for x in ['ET', 'PM'])), '')
                     pos = {
                         'position': f"MONEYLINE: {player}",
-                        'details': matchup_details
+                        'details': details
                     }
-                    
                     return {
                         'bet_type': bet_type,
                         'expected_legs': 1,
@@ -305,6 +198,14 @@ class BetSlipScanner:
                         'formatted_output': [f"Position: {pos['position']}", f"Details: {pos['details']}"]
                     }
         
+        # Handle parlay
+        current_game = None
+        # Find game info
+        for line in lines:
+            if '@' in line and ('ET' in line or 'PM' in line):
+                current_game = line.strip()
+                break
+        
         # Parse parlay legs
         all_legs = self.parse_structured_parlay_legs(text)
         
@@ -312,47 +213,29 @@ class BetSlipScanner:
         parlay_match = re.search(r'(\d+)\s*leg.*Parlay', text, re.IGNORECASE)
         expected_legs = int(parlay_match.group(1)) if parlay_match else len(all_legs)
         
-        # Group legs by game
-        games = {}
-        for leg in all_legs:
-            game = leg.pop('game', None)
-            if game:
-                if game not in games:
-                    games[game] = []
-                games[game].append(leg)
+        # Create games structure
+        games = []
+        if current_game and all_legs:
+            games.append({
+                'game': current_game,
+                'positions': all_legs
+            })
         
-        # Convert games dict to list format
-        games_list = [{'game': game, 'positions': positions} 
-                    for game, positions in games.items()]
-        
-        # Format output - simpler format without game grouping for regular parlays
+        # Format output
         formatted_output = []
-        if bet_type == 'parlay':
-            for idx, leg in enumerate(all_legs, 1):
-                formatted_output.extend([
-                    f"Leg Position {idx}: {leg['position']}",
-                    f"Bet Details: {leg['details']}"
-                ])
-        else:
-            # More detailed format for Same Game Parlays
-            for game_dict in games_list:
-                formatted_output.append(f"\nGame: {game_dict['game']}")
-                for idx, leg in enumerate(game_dict['positions'], 1):
-                    formatted_output.extend([
-                        f"Leg Position {idx}: {leg['position']}",
-                        f"Bet Details: {leg['details']}"
-                    ])
-        
-        # Validate legs count vs expected
-        found_legs = len(all_legs)
-        if found_legs != expected_legs:
-            print(f"\nWARNING: Expected {expected_legs} legs but found {found_legs}")
+        if current_game:
+            formatted_output.append(f"\nGame: {current_game}")
+        for idx, leg in enumerate(all_legs, 1):
+            formatted_output.extend([
+                f"Leg {idx} Position: {leg['position']}",
+                f"Bet Details: {leg['details']}"
+            ])
         
         return {
             'bet_type': bet_type,
             'expected_legs': expected_legs,
-            'found_legs': found_legs,
-            'games': games_list,
+            'found_legs': len(all_legs),
+            'games': games,
             'total_wager': wager,
             'total_payout': payout,
             'formatted_output': formatted_output
