@@ -312,27 +312,49 @@ class BetSlipScanner:
         parlay_match = re.search(r'(\d+)\s*leg.*Parlay', text, re.IGNORECASE)
         expected_legs = int(parlay_match.group(1)) if parlay_match else len(all_legs)
         
-        # Group legs by game
-        games = {}
-        for leg in all_legs:
-            game = leg.pop('game', None)
-            if game:
+        # Additional bet type detection
+        made_threes_legs = self.extract_made_threes_leg(text)
+        to_score_legs = self.extract_to_score_leg(text)
+        assists_legs = self.extract_assists_leg(text)
+        
+        # For regular parlays, group all legs under a single game
+        if bet_type == 'parlay':
+            # Filter out duplicate legs and summary lines
+            clean_legs = []
+            seen_positions = set()
+            
+            for leg in all_legs:
+                position_key = f"{leg['position']}:{leg['details']}"
+                if position_key not in seen_positions and ',' not in leg['position']:
+                    seen_positions.add(position_key)
+                    clean_legs.append(leg)
+            
+            games_list = [{
+                'game': 'Parlay',
+                'positions': clean_legs
+            }]
+        else:
+            # Group legs by game for Same Game Parlays
+            games = {}
+            for leg in all_legs:
+                game = leg.pop('game', None) or 'Parlay'
                 if game not in games:
                     games[game] = []
                 games[game].append(leg)
+            
+            games_list = [{'game': game, 'positions': positions} 
+                        for game, positions in games.items()]
         
-        # Convert games dict to list format
-        games_list = [{'game': game, 'positions': positions} 
-                    for game, positions in games.items()]
-        
-        # Format output - simpler format without game grouping for regular parlays
+        # Format output
         formatted_output = []
         if bet_type == 'parlay':
-            for idx, leg in enumerate(all_legs, 1):
-                formatted_output.extend([
-                    f"Leg Position {idx}: {leg['position']}",
-                    f"Bet Details: {leg['details']}"
-                ])
+            # Simple format for regular parlays
+            for game_dict in games_list:
+                for idx, leg in enumerate(game_dict['positions'], 1):
+                    formatted_output.extend([
+                        f"Leg Position {idx}: {leg['position']}",
+                        f"Bet Details: {leg['details']}"
+                    ])
         else:
             # More detailed format for Same Game Parlays
             for game_dict in games_list:
@@ -347,6 +369,10 @@ class BetSlipScanner:
         found_legs = len(all_legs)
         if found_legs != expected_legs:
             print(f"\nWARNING: Expected {expected_legs} legs but found {found_legs}")
+            
+        # Use clean_legs length for found_legs in parlay case
+        if bet_type == 'parlay':
+            found_legs = len(games_list[0]['positions'])
         
         return {
             'bet_type': bet_type,
