@@ -37,8 +37,15 @@
                 <p>Found Legs: {{ result['found_legs'] }}</p>
                 <p class="wager-payout">
                     Total Wager: ${{ "%.2f"|format(result['total_wager']) }}<br>
-                    Total Payout: ${{ "%.2f"|format(result['total_payout']) }}
+                    {% if result['bet_finished'] %}
+                        Won Amount: ${{ "%.2f"|format(result['won_amount']) }}
+                    {% else %}
+                        Potential Payout: ${{ "%.2f"|format(result['total_payout']) }}
+                    {% endif %}
                 </p>
+                {% if result['bet_finished'] %}
+                    <p class="status">Status: Finished</p>
+                {% endif %}
             </div>
             
             <h3>Detected Legs by Game:</h3>
@@ -79,7 +86,13 @@
                     <td>{{ datetime.now().strftime('%Y-%m-%d %H:%M:%S') }}</td>
                     <td>FanDuel</td>
                     <td class="currency">${{ "%.2f"|format(result['total_wager']) }}</td>
-                    <td class="currency">${{ "%.2f"|format(result['total_payout']) }}</td>
+                    <td class="currency">
+                        {% if result['bet_finished'] %}
+                            ${{ "%.2f"|format(result['won_amount']) }}
+                        {% else %}
+                            ${{ "%.2f"|format(result['total_payout']) }}
+                        {% endif %}
+                    </td>
                 </tr>
             </tbody>
         </table>
@@ -100,15 +113,21 @@
             <tbody>
                 {% for game in result['games'] %}
                     {% for position in game['positions'] %}
-                        <tr>
-                            <td>1</td>
-                            <td>{{ datetime.now().strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                            <td>{{ result['bet_type'].title() }}</td>
-                            <td>{{ position['position'] }}</td>
-                            <td>{{ position['details'] }}</td>
-                            <td class="currency">${{ "%.2f"|format(result['total_wager']) }}</td>
-                            <td class="currency">${{ "%.2f"|format(result['total_payout']) }}</td>
-                        </tr>
+                    <tr>
+                        <td>1</td>
+                        <td>{{ datetime.now().strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>{{ result['bet_type'].title() }}</td>
+                        <td>{{ position['position'] }}</td>
+                        <td>{{ position['details'] }}</td>
+                        <td class="currency">${{ "%.2f"|format(result['total_wager']) }}</td>
+                        <td class="currency">
+                            {% if result['bet_finished'] %}
+                                ${{ "%.2f"|format(result['won_amount']) }}
+                            {% else %}
+                                ${{ "%.2f"|format(result['total_payout']) }}
+                            {% endif %}
+                        </td>
+                    </tr>
                     {% endfor %}
                 {% endfor %}
             </tbody>

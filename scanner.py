@@ -22,9 +22,12 @@ class BetSlipScanner:
         text = re.sub(r'[^A-Za-z\s]', '', text) # Keep only letters and spaces
         return text.strip()
 
-    def extract_wager_and_payout(self, text: str) -> Tuple[float, float]:
+    def extract_wager_and_payout(self, text: str) -> Dict[str, float]:
+        """Extract wager, potential payout, and actual winnings from bet slip."""
         wager = 0.0
-        payout = 0.0
+        potential_payout = 0.0
+        won_amount = 0.0
+        bet_finished = False
         
         words = text.split()
         dollar_amounts = []
@@ -32,33 +35,39 @@ class BetSlipScanner:
         print("\nDEBUG - Processing text word by word:")
         for i, word in enumerate(words):
             print(f"Word {i}: '{word}'")
-            match = re.match(r'\$(\d+\.\d+)', word)
+            match = re.match(r'\$(\d+(?:,\d{3})*(?:\.\d{2})?)', word)
             if match:
-                amount = float(match.group(1))
+                # Remove commas and convert to float
+                amount = float(match.group(1).replace(',', ''))
                 dollar_amounts.append(amount)
                 print(f"Found dollar amount: ${amount}")
 
         print("\nDEBUG - All dollar amounts found:", dollar_amounts)
         
         print("\nDEBUG - Looking for TOTAL WAGER/PAYOUT:")
-        amount_index = 0
-        for i, word in enumerate(words):
-            if amount_index < len(dollar_amounts):
-                if word.upper() == "TOTAL":
-                    next_word = words[i + 1].upper() if i + 1 < len(words) else ""
-                    print(f"Found TOTAL followed by: '{next_word}'")
-                    
-                    if next_word == "WAGER":
-                        wager = dollar_amounts[amount_index]
-                        print(f"Setting wager to: ${wager}")
-                        amount_index += 1
-                    elif next_word == "PAYOUT":
-                        payout = dollar_amounts[amount_index]
-                        print(f"Setting payout to: ${payout}")
-                        amount_index += 1
+        if len(dollar_amounts) >= 2:
+            wager = dollar_amounts[0]  # First dollar amount is wager
+            # Check if this is a finished bet with winnings
+            if "WON ON FANDUEL" in text.upper():
+                bet_finished = True
+                won_amount = dollar_amounts[1]  # Second amount is winnings
+                print(f"Found WON ON FANDUEL amount: ${won_amount}")
+            else:
+                potential_payout = dollar_amounts[1]  # Second amount is potential payout
+                print(f"Found TOTAL PAYOUT amount: ${potential_payout}")
 
-        print(f"\nDEBUG - Final values: Wager=${wager}, Payout=${payout}")
-        return wager, payout
+        print(f"\nDEBUG - Final values:")
+        print(f"Wager: ${wager}")
+        print(f"Potential Payout: ${potential_payout}")
+        print(f"Won Amount: ${won_amount}")
+        print(f"Bet Finished: {bet_finished}")
+        
+        return {
+            'wager': wager,
+            'potential_payout': potential_payout,
+            'won_amount': won_amount,
+            'bet_finished': bet_finished
+        }
 
     def extract_made_threes_leg(self, text: str) -> List[str]:
         legs = []
@@ -170,41 +179,53 @@ class BetSlipScanner:
         
         def is_game_header(line: str) -> bool:
             return '@' in line and any(x in line for x in ['ET', 'PM'])
+        
+        def is_score_line(line: str) -> bool:
+            # Check if line contains 4 numbers followed by a total
+            score_pattern = r'^\d+\s+\d+\s+\d+\s+\d+\s+\d+$'
+            return bool(re.match(score_pattern, line))
 
         def is_header_line(line: str) -> bool:
             headers = [
                 'TOTAL', 'SAME GAME PARLAY', 'INCLUDES:', 
-                'LEG SAME', 'SELECTIONS', 'LEG PARLAY'
+                'LEG SAME', 'SELECTIONS', 'LEG PARLAY',
+                'WON ON FANDUEL', 'Finished', 'LIVE'
             ]
             return (
                 any(header in line.upper() for header in headers) or
                 (line.startswith('+') and line[1:].isdigit()) or  # Skip odds lines
-                (line.startswith('-') and line[1:].isdigit())
+                (line.startswith('-') and line[1:].isdigit()) or
+                is_score_line(line)
             )
 
         def clean_player_name(line: str) -> str:
             # First, remove common OCR artifacts
-            name = re.sub(r'^[#\-~@iG\s£6*\d®¢g»©AO)ae"]+', '', line)
+            name = re.sub(r'^[#\-~@iG\s£6*\d®¢g»©AO)ae"<>]+', '', line)
             # Remove artifacts from the end
             name = re.sub(r'[\\/"$].*$', '', name)
             # Remove trailing odds numbers
-            name = re.sub(r'-\d+$', '', name)
+            name = re.sub(r'[+-]\d+$', '', name)
             # Remove any remaining artifacts
             name = re.sub(r'[®¢g»©"\[\]{}]', '', name)
             return name.strip()
 
         def clean_bet_details(line: str) -> str:
             # Remove leading OCR artifacts
-            details = re.sub(r'^[ae"\s]+', '', line)
+            details = re.sub(r'^[ae"<>\s]+', '', line)
             # Remove any remaining artifacts
             details = re.sub(r'[®¢g»©"\[\]{}]', '', details)
             
-            # Standardize bet detail format
-            if 'TO SCORE' in details.upper():
-                points_match = re.search(r'(\d+)\+?\s*POINTS', details.upper())
+            # Standardize bet detail formats
+            details = details.upper()
+            if 'TO SCORE' in details:
+                points_match = re.search(r'(\d+)\+?\s*POINTS', details)
                 if points_match:
                     points = points_match.group(1)
                     return f"TO SCORE {points}+ POINTS"
+            elif 'DOUBLE DOUBLE' in details:
+                return "TO RECORD A DOUBLE DOUBLE"
+            elif 'FIRST BASKET' in details:
+                return "FIRST BASKET"
                     
             return details.strip()
 
@@ -215,10 +236,12 @@ class BetSlipScanner:
                 r'\d+\+\s*MADE THREES',
                 r'ANY ?TIME TOUCHDOWN SCORER',
                 r'ALT (?:PASSING|RUSHING) (?:YDS|TDS)',
+                r'TO RECORD A DOUBLE DOUBLE',
+                r'FIRST BASKET'
             ]
             # Clean the line first before checking patterns
-            clean_line = clean_bet_details(line)
-            return any(re.search(pattern, clean_line.upper()) for pattern in patterns)
+            clean_line = clean_bet_details(line.upper())
+            return any(re.search(pattern, clean_line) for pattern in patterns)
 
         i = 0
         while i < len(lines):
@@ -230,7 +253,7 @@ class BetSlipScanner:
                 i += 1
                 continue
                 
-            # Skip header lines
+            # Skip header lines and scores
             if is_header_line(line):
                 i += 1
                 continue
@@ -239,19 +262,14 @@ class BetSlipScanner:
             next_line = lines[i + 1] if i + 1 < len(lines) else ""
             
             # Check for player name followed by bet details pattern
-            if next_line and is_bet_detail(next_line):
+            if next_line and (is_bet_detail(next_line) or 'FIRST BASKET' in next_line.upper()):
                 player_name = clean_player_name(line)
                 
                 # Validate player name
                 if (player_name and 
                     not player_name.isupper() and  # Skip all-caps headers
-                    not '@' in player_name):       # Skip game headers
-                    
-                    # Handle hyphenated names (like Gilgeous-Alexander)
-                    if '-' in line and '-' not in player_name:
-                        parts = line.split('-')
-                        if len(parts) >= 2 and not parts[-1].isdigit():
-                            player_name = '-'.join(p.strip() for p in parts if not p.isdigit())
+                    not '@' in player_name and     # Skip game headers
+                    not any(x in player_name.upper() for x in ['TOTAL', 'GAME', 'PARLAY'])):
                     
                     legs.append({
                         'position': player_name,
@@ -261,11 +279,11 @@ class BetSlipScanner:
                 i += 2
             else:
                 i += 1
-                    
+                        
         return legs
 
     def extract_legs(self, text: str) -> Dict:
-        wager, payout = self.extract_wager_and_payout(text)
+        amounts = self.extract_wager_and_payout(text)  # Now properly using dictionary return
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         
         # Determine bet type
@@ -286,7 +304,7 @@ class BetSlipScanner:
                 if 'MONEYLINE' in line.upper():
                     player = first_line
                     matchup_details = next(
-                        (l.strip() for l in lines[i:] if 'v' in l and any(x in l for x in ['ET', 'PM'])),
+                        (l.strip() for l in lines[i:] if '@' in l and any(x in l for x in ['ET', 'PM'])),
                         ''
                     )
                     
@@ -299,8 +317,10 @@ class BetSlipScanner:
                         'bet_type': bet_type,
                         'expected_legs': 1,
                         'found_legs': 1,
-                        'total_wager': wager,
-                        'total_payout': payout,
+                        'total_wager': amounts['wager'],
+                        'total_payout': amounts['potential_payout'],
+                        'won_amount': amounts['won_amount'],
+                        'bet_finished': amounts['bet_finished'],
                         'games': [{'game': 'Straight Bet', 'positions': [pos]}],
                         'formatted_output': [f"Position: {pos['position']}", f"Details: {pos['details']}"]
                     }
@@ -311,11 +331,6 @@ class BetSlipScanner:
         # Get expected legs count
         parlay_match = re.search(r'(\d+)\s*leg.*Parlay', text, re.IGNORECASE)
         expected_legs = int(parlay_match.group(1)) if parlay_match else len(all_legs)
-        
-        # Additional bet type detection
-        made_threes_legs = self.extract_made_threes_leg(text)
-        to_score_legs = self.extract_to_score_leg(text)
-        assists_legs = self.extract_assists_leg(text)
         
         # For regular parlays, group all legs under a single game
         if bet_type == 'parlay':
@@ -365,22 +380,21 @@ class BetSlipScanner:
                         f"Bet Details: {leg['details']}"
                     ])
         
-        # Validate legs count vs expected
-        found_legs = len(all_legs)
-        if found_legs != expected_legs:
-            print(f"\nWARNING: Expected {expected_legs} legs but found {found_legs}")
-            
         # Use clean_legs length for found_legs in parlay case
         if bet_type == 'parlay':
             found_legs = len(games_list[0]['positions'])
+        else:
+            found_legs = len(all_legs)
         
         return {
             'bet_type': bet_type,
             'expected_legs': expected_legs,
             'found_legs': found_legs,
+            'total_wager': amounts['wager'],
+            'total_payout': amounts['potential_payout'],
+            'won_amount': amounts['won_amount'],
+            'bet_finished': amounts['bet_finished'],
             'games': games_list,
-            'total_wager': wager,
-            'total_payout': payout,
             'formatted_output': formatted_output
         }
 
